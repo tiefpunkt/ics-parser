@@ -144,10 +144,6 @@ class ICal
      */
     public function addCalendarComponentWithKeyAndValue($component, $keyword, $value)
     {
-        if (strstr($keyword, ';')) {
-            // Ignore everything in keyword after a ; (things like Language, etc)
-            $keyword = substr($keyword, 0, strpos($keyword, ';'));
-        }
         if ($keyword == false) {
             $keyword = $this->last_keyword;
             switch ($component) {
@@ -164,8 +160,34 @@ class ICal
         }
 
         if (stristr($keyword, 'DTSTART') or stristr($keyword, 'DTEND') or stristr($keyword, 'EXDATE')) {
-            $keyword = explode(';', $keyword);
-            $keyword = $keyword[0];
+            $keyword_arr = explode(';', $keyword);
+
+            // Figure out timezone, default to UTC
+            $tz = "UTC";
+            if (substr($value, -1) === "Z") {
+                // Timezone is UTC
+            } else if (count($keyword_arr) > 1) {
+                // Timezone defined
+                $tmp = explode("=", $keyword_arr[1]);
+                if ($tmp[0] == "TZID") {
+                    $tz = $tmp[1];
+                }
+            } else {
+                // Not UTC, but also no timezone set
+                // Stay with UTC for now. Should maybe parse Timezone of entire cal.
+            }
+
+            $keyword = $keyword_arr[0];
+
+            # Rewrite Value
+            $value = new DateTime($value, new DateTimeZone($tz));
+            $value->setTimezone(new DateTimeZone("UTC"));
+            $value = $value->format("Ymd\THis\Z");
+        }
+
+        if (strstr($keyword, ';')) {
+            // Ignore everything in keyword after a ; (things like Language, etc)
+            $keyword = substr($keyword, 0, strpos($keyword, ';'));
         }
 
         switch ($component) {
@@ -216,6 +238,10 @@ class ICal
      */
     public function iCalDateToUnixTimestamp($icalDate)
     {
+        // Treat everything as UTC for this function
+        $default_timezone = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+
         $icalDate = str_replace('T', '', $icalDate);
         $icalDate = str_replace('Z', '', $icalDate);
 
@@ -234,6 +260,8 @@ class ICal
         // Unix timestamps after 03:14:07 UTC 2038-01-19 might cause an overflow
         // if 32 bit integers are used.
         $timestamp = mktime((int)$date[4], (int)$date[5], (int)$date[6], (int)$date[2], (int)$date[3], (int)$date[1]);
+
+        date_default_timezone_set($default_timezone);
         return $timestamp;
     }
 
@@ -245,6 +273,10 @@ class ICal
      */
     public function process_recurrences()
     {
+        // Treat everything as UTC for this function
+        $default_timezone = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+
         $array = $this->cal;
         $events = $array['VEVENT'];
         if (empty($events))
@@ -451,6 +483,9 @@ class ICal
             }
         }
         $this->cal['VEVENT'] = $events;
+
+        # Reset Timezone
+        date_default_timezone_set($default_timezone);
     }
 
     /**
